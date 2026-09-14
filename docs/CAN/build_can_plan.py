@@ -1,11 +1,17 @@
 #!/usr/bin/env python3
-"""Build FAN_F CAN development plan (OEM schedule format, dates not hours)."""
+"""Convert 高压风扇开发计划.xlsx 工时(人天) into start/end dates.
 
-from datetime import date
+Source: the uploaded WBS (编号 / 阶段 / 任务 / 人天 / 负责人 / 交付物).
+Window: 2026-06-15 .. 2026-10-30, weekdays only, minus 端午/中秋/国庆.
+Critical path (105 人天) is scaled onto 93 working days.
+Phase 5 (信息安全文档, 7 人天) runs in parallel after design review.
+"""
+
+from datetime import date, timedelta
+from shutil import copyfile
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
-from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.datavalidation import DataValidation
 from openpyxl.worksheet.page import PageMargins
 
@@ -13,625 +19,433 @@ PLAN_START = date(2026, 6, 15)
 PLAN_END = date(2026, 10, 30)
 AS_OF = date(2026, 9, 14)
 
-# Task list: phase, task, deliverable, start, end, role, note
-# Window is calendar dates 2026-06-15 .. 2026-10-30 (Mon .. Fri).
-# Original 工时 sheet was not uploaded; durations follow a typical
-# HV-fan CAN WBS on S32K144W / 500 kbit/s and stay inside that window.
-TASKS = [
-    (
-        "需求",
-        "接收并冻结整车 CAN 矩阵 / DBC",
-        "已确认矩阵/DBC 版本 + 差异清单",
-        date(2026, 6, 15),
-        date(2026, 6, 26),
-        "项目 / 软件",
-        "无正式矩阵则先用临时信号表，冻结日写入备注",
-    ),
-    (
-        "需求",
-        "确认周期报文、事件报文、NM、诊断范围",
-        "CAN 需求说明书（报文清单 + 周期 + 诊断范围）",
-        date(2026, 6, 15),
-        date(2026, 7, 3),
-        "软件",
-        "与福田接口人书面确认；无 NM/UDS 则在备注写“不适用”",
-    ),
-    (
-        "需求",
-        "CAN 软件方案（调度、故障映射、与 FOC 接口）",
-        "软件方案 1 页 + 信号-应用对照表",
-        date(2026, 6, 22),
-        date(2026, 7, 10),
-        "软件",
-        "含 0x7AA 等本项目 ID 的最终分配（以矩阵为准）",
-    ),
-    (
-        "底层",
-        "FlexCAN 驱动：波特率 500 kbit/s、滤波、邮箱、总线off恢复",
-        "驱动自测记录（发送/接收/BusOff）",
-        date(2026, 6, 29),
-        date(2026, 7, 17),
-        "软件",
-        "时钟改 80 MHz 后复核 CAN 时序",
-    ),
-    (
-        "底层",
-        "周期发送与事件发送调度",
-        "周期误差记录（对照矩阵）",
-        date(2026, 7, 13),
-        date(2026, 7, 31),
-        "软件",
-        "与 1 ms 任务调度对齐，禁止阻塞 delay",
-    ),
-    (
-        "底层",
-        "接收解析与应用层接口",
-        "RX API + 超时/默认值策略",
-        date(2026, 7, 13),
-        date(2026, 7, 31),
-        "软件",
-        "控制报文丢失时的风扇安全态写进备注",
-    ),
-    (
-        "协议",
-        "网络管理（矩阵要求时）",
-        "NM 睡眠/唤醒测试记录，或“不适用”说明",
-        date(2026, 7, 20),
-        date(2026, 8, 14),
-        "软件",
-        "矩阵无 NM 则本行关闭并改状态为取消",
-    ),
-    (
-        "协议",
-        "诊断 UDS / ISO-TP（矩阵或售后要求时）",
-        "DID/DTC 清单 + 台架诊断记录，或“不适用”说明",
-        date(2026, 7, 27),
-        date(2026, 8, 21),
-        "软件",
-        "与 CIA 刷写/解锁要求分开登记",
-    ),
-    (
-        "应用",
-        "状态上送：转速、温度、电压、故障字",
-        "对照矩阵的信号精度/分辨率记录",
-        date(2026, 8, 3),
-        date(2026, 8, 21),
-        "软件",
-        "故障字与 FOC/保护模块同源",
-    ),
-    (
-        "应用",
-        "控制报文：使能、目标、运行模式",
-        "控制路径台架记录（含非法值/超时）",
-        date(2026, 8, 3),
-        date(2026, 8, 21),
-        "软件",
-        "与高压互锁/故障降级策略一致",
-    ),
-    (
-        "应用",
-        "故障与 DTC / 故障字映射",
-        "故障映射表",
-        date(2026, 8, 17),
-        date(2026, 9, 4),
-        "软件 / 测试",
-        "只映射本控制器真实故障，不编造码",
-    ),
-    (
-        "应用",
-        "调试口与整车 CAN 隔离（FreeMASTER / JTAG）",
-        "量产态：调试口关闭或隔离的检查记录",
-        date(2026, 8, 24),
-        date(2026, 9, 11),
-        "软件",
-        "交样连续生产态见 FAN_F-CS-200，本行只覆盖 CAN 调试残留",
-    ),
-    (
-        "台架",
-        "PCAN 台架联调（500 kbit/s）",
-        "联调记录（通过准则：矩阵内周期报文稳定收发）",
-        date(2026, 8, 31),
-        date(2026, 9, 18),
-        "测试 / 软件",
-        "与 FreeMASTER 通道分开，避免占同一 ID",
-    ),
-    (
-        "台架",
-        "周期、负载、丢帧、BusOff 恢复",
-        "总线负载与异常恢复记录",
-        date(2026, 9, 7),
-        date(2026, 9, 24),
-        "测试",
-        "9-25 中秋，结束日收到 24 日（周四）",
-    ),
-    (
-        "台架",
-        "诊断与刷写相关验证（如有）",
-        "诊断/刷写检查表，或“不适用”",
-        date(2026, 9, 14),
-        date(2026, 10, 16),
-        "测试 / 软件",
-        "10/1–10/7 国庆不排关闭节点；结束放在节后",
-    ),
-    (
-        "交样",
-        "交样软件冻结与配套材料",
-        "冻结版本号 + 校验和 + 发布说明",
-        date(2026, 9, 21),
-        date(2026, 10, 16),
-        "项目 / 软件",
-        "对齐福田交样日（黄格节点）；本行结束不得晚于交样",
-    ),
-    (
-        "实车",
-        "实车问题关闭",
-        "问题清单关闭状态",
-        date(2026, 10, 8),
-        date(2026, 10, 23),
-        "软件 / 测试",
-        "国庆后进车；影响交样的项升级为里程碑风险",
-    ),
-    (
-        "发布",
-        "CAN 开发关闭：发布包、测试报告、遗留项",
-        "发布包 + 测试报告 + 遗留项（无则写无）",
-        date(2026, 10, 19),
-        date(2026, 10, 30),
-        "项目 / 软件",
-        "窗口结束日 10-30（周五）",
-    ),
+HOLIDAYS = {
+    date(2026, 6, 19),  # 端午
+    date(2026, 9, 25),  # 中秋
+    date(2026, 10, 1),
+    date(2026, 10, 2),
+    date(2026, 10, 3),
+    date(2026, 10, 4),
+    date(2026, 10, 5),
+    date(2026, 10, 6),
+    date(2026, 10, 7),
+}
+
+# (code, phase, task, pd, owner, deliverable, path)
+# path: "main" sequential on the embedded/test delivery path; "p5" parallel docs
+ROWS = [
+    ("1.1", "需求分析与评审", "客户资料分析与需求拆解", 5, "系统工程师", "D01 系统需求规格书", "main"),
+    ("1.2", "需求分析与评审", "需求拆解表编制", 2, "系统工程师", "D02 需求拆解表", "main"),
+    ("1.3", "需求分析与评审", "需求评审会议", 1, "项目经理+系统工程师", "D03 需求评审记录表", "main"),
+    ("1.4", "需求分析与评审", "芯片可行性确认", 1, "系统工程师", "芯片可行性分析报告", "main"),
+    ("2.1", "架构与详细设计", "软件架构设计", 2, "系统工程师", "D04 软件架构设计文档", "main"),
+    ("2.2", "架构与详细设计", "Bootloader 详细设计", 2, "嵌入式开发工程师", "D05 Bootloader 详细设计", "main"),
+    ("2.3", "架构与详细设计", "UDS 诊断栈详细设计", 3, "嵌入式开发工程师", "D06 UDS 诊断栈详细设计", "main"),
+    ("2.4", "架构与详细设计", "安全访问模块设计", 2, "嵌入式开发工程师", "D07 安全访问设计", "main"),
+    ("2.5", "架构与详细设计", "Flash 分区与存储管理设计", 2, "嵌入式开发工程师", "D08 Flash 分区设计", "main"),
+    ("2.6", "架构与详细设计", "CAN 通信设计", 2, "嵌入式开发工程师", "D09 CAN 通信设计", "main"),
+    ("2.7", "架构与详细设计", "设计内部评审", 1, "项目团队", "设计评审记录", "main"),
+    ("3.1", "软件开发 — Bootloader", "MCU 底层初始化及配置", 3, "嵌入式开发工程师", "凌鸥芯片适配", "main"),
+    ("3.2", "软件开发 — Bootloader", "CAN 驱动开发", 3, "嵌入式开发工程师", "初始化/收发/滤波/中断", "main"),
+    ("3.3", "软件开发 — Bootloader", "CAN-TP 传输层", 5, "嵌入式开发工程师", "单帧/多帧/流控/定时", "main"),
+    ("3.4", "软件开发 — Bootloader", "UDS 诊断栈", 8, "嵌入式开发工程师", "10个SID服务实现", "main"),
+    ("3.5", "软件开发 — Bootloader", "安全信息访问", 5, "嵌入式开发工程师", "含算法验证和测试向量比对", "main"),
+    ("3.6", "软件开发 — Bootloader", "Flash 擦写驱动 + CRC32", 3, "嵌入式开发工程师", "含硬件CRC模块调用", "main"),
+    ("3.7", "软件开发 — Bootloader", "刷写状态机 + NRC + 跳步约束", 4, "嵌入式开发工程师", "16条跳步规则实现", "main"),
+    ("3.8", "软件开发 — Bootloader", "Bootloader 集成调试", 5, "嵌入式开发工程师", "端到端刷写流程联调", "main"),
+    ("3.9", "软件开发 — Application", "App 初始化 + CAN 驱动", 2, "嵌入式开发工程师", "部分代码共用", "main"),
+    ("3.10", "软件开发 — Application", "UDS 诊断栈", 5, "嵌入式开发工程师", "完整诊断服务", "main"),
+    ("3.11", "软件开发 — Application", "DID 管理模块", 2, "嵌入式开发工程师", "10+ 个 DID 读写", "main"),
+    ("3.12", "软件开发 — Application", "DTC 管理模块", 2, "嵌入式开发工程师", "0x14/0x19 服务", "main"),
+    ("3.13", "软件开发 — Application", "编程前条件检查", 2, "嵌入式开发工程师", "CAN 信号接收+条件判断", "main"),
+    ("3.14", "软件开发 — Application", "风扇控制功能集成", 6, "嵌入式开发工程师", "PWM+ADC", "main"),
+    ("3.15", "软件开发 — Application", "Application 集成调试", 4, "嵌入式开发工程师", "端到端诊断功能联调", "main"),
+    ("4.1", "测试验证", "单元测试（关键模块）", 3, "开发+测试", "AES/CRC/Flash/CAN-TP", "main"),
+    ("4.2", "测试验证", "Bootloader 刷写流程测试", 2, "测试工程师", "正常+16条异常路径", "main"),
+    ("4.3", "测试验证", "诊断功能测试", 3, "测试工程师", "全SID/全会话/全NRC", "main"),
+    ("4.4", "测试验证", "安全访问测试", 2, "测试工程师", "算法正确性+锁定机制", "main"),
+    ("4.5", "测试验证", "BT↔App 集成测试", 3, "测试工程师", "刷写闭环+会话切换", "main"),
+    ("4.6", "测试验证", "Bug 修复与回归测试", 5, "开发工程师", "问题修复验证", "main"),
+    ("5.1", "信息安全文档", "信息安全技术规范填充", 2, "系统工程师", "D10 CS100120-027C", "p5"),
+    ("5.2", "信息安全文档", "信息安全测试用例编写", 2, "测试工程师", "D11 CS100120-030C", "p5"),
+    ("5.3", "信息安全文档", "CIA 接口协议确认与修订", 2, "项目经理", "D12 CS100120-045C", "p5"),
+    ("5.4", "信息安全文档", "信息安全评审", 1, "项目团队", "评审记录", "p5"),
+    ("6.1", "交付与客户支持", "版本发布说明编写", 1, "开发工程师", "D17 版本发布说明", "main"),
+    ("6.2", "交付与客户支持", "交付评审", 1, "项目团队+客户", "评审记录", "main"),
+    ("6.3", "交付与客户支持", "客户侧验证技术支持", 3, "开发工程师", "现场/远程支持", "main"),
 ]
 
-MILESTONES = [
-    ("M1 矩阵/需求冻结", date(2026, 7, 3), "需求阶段关闭", "未开始"),
-    ("M2 驱动与调度可用", date(2026, 7, 31), "底层阶段关闭", "未开始"),
-    ("M3 应用报文闭环", date(2026, 9, 4), "应用阶段主路径可用", "未开始"),
-    ("M4 台架通讯通过", date(2026, 9, 18), "可支持上车/交样联调", "未开始"),
-    ("M5 交样软件冻结", date(2026, 10, 16), "对齐福田交样（请填客户节点）", "未开始"),
-    ("M6 CAN 开发关闭", date(2026, 10, 30), "本窗口结束", "未开始"),
+SUBTOTALS = [
+    ("阶段一 小计", "需求分析与评审"),
+    ("阶段二 小计", "架构与详细设计"),
+    ("BT 开发 小计", "软件开发 — Bootloader"),
+    ("App 开发 小计", "软件开发 — Application"),
+    ("阶段三 合计", ("软件开发 — Bootloader", "软件开发 — Application")),
+    ("阶段四 小计", "测试验证"),
+    ("阶段五 小计", "信息安全文档"),
+    ("阶段六 小计", "交付与客户支持"),
+    ("项目合计", None),
 ]
 
 PHASE_FILL = {
-    "需求": "D6EAF8",
-    "底层": "D5F5E3",
-    "协议": "FCF3CF",
-    "应用": "FADBD8",
-    "台架": "E8DAEF",
-    "交样": "D6DBDF",
-    "实车": "F5CBA7",
-    "发布": "AED6F1",
+    "需求分析与评审": "D6EAF8",
+    "架构与详细设计": "D5F5E3",
+    "软件开发 — Bootloader": "FDEBD0",
+    "软件开发 — Application": "FCF3CF",
+    "测试验证": "E8DAEF",
+    "信息安全文档": "FADBD8",
+    "交付与客户支持": "D6DBDF",
 }
 
 
-def fill(hex_color: str) -> PatternFill:
+def working_days(start, end):
+    days = []
+    d = start
+    while d <= end:
+        if d.weekday() < 5 and d not in HOLIDAYS:
+            days.append(d)
+        d += timedelta(days=1)
+    return days
+
+
+def allocate(weights, seats, min_each=1):
+    n = len(weights)
+    remaining = seats - min_each * n
+    extra_w = [w - min_each for w in weights]
+    total = sum(extra_w)
+    exact = [min_each + remaining * ew / total for ew in extra_w]
+    base = [int(x) for x in exact]
+    leftover = seats - sum(base)
+    fracs = sorted(((exact[i] - base[i], -weights[i], i) for i in range(n)), reverse=True)
+    for k in range(leftover):
+        base[fracs[k][2]] += 1
+    if sum(base) != seats:
+        raise RuntimeError(f"allocation {sum(base)} != {seats}")
+    return base
+
+
+def schedule(wdays):
+    main = [r for r in ROWS if r[6] == "main"]
+    seats = allocate([r[3] for r in main], len(wdays))
+    dates = {}
+    cur = 0
+    p2_end_idx = None
+    for row, n in zip(main, seats):
+        dates[row[0]] = (wdays[cur], wdays[cur + n - 1], n)
+        if row[0] == "2.7":
+            p2_end_idx = cur + n
+        cur += n
+    if p2_end_idx is None:
+        raise RuntimeError("phase 2 end not found")
+    cur = p2_end_idx
+    for row in (r for r in ROWS if r[6] == "p5"):
+        n = row[3]  # 7 人天, parallel, no compress
+        dates[row[0]] = (wdays[cur], wdays[cur + n - 1], n)
+        cur += n
+    return dates
+
+
+def fill(hex_color):
     return PatternFill("solid", fgColor=hex_color)
 
 
-def font(size=11, bold=False, color="000000", name="Calibri"):
-    return Font(name=name, size=size, bold=bold, color=color)
+def font(size=10, bold=False, color="000000"):
+    return Font(name="微软雅黑", size=size, bold=bold, color=color)
 
 
-def align(h="left", v="center", wrap=True):
+def align(h="center", v="center", wrap=True):
     return Alignment(horizontal=h, vertical=v, wrap_text=wrap)
 
 
 THIN = Border(
-    left=Side(style="thin", color="BFBFBF"),
-    right=Side(style="thin", color="BFBFBF"),
-    top=Side(style="thin", color="BFBFBF"),
-    bottom=Side(style="thin", color="BFBFBF"),
+    left=Side(style="thin", color="808080"),
+    right=Side(style="thin", color="808080"),
+    top=Side(style="thin", color="808080"),
+    bottom=Side(style="thin", color="808080"),
 )
 
 
-def style_range(ws, row, c1, c2, **kwargs):
-    for col in range(c1, c2 + 1):
-        cell = ws.cell(row, col)
-        if "fill" in kwargs:
-            cell.fill = kwargs["fill"]
-        if "font" in kwargs:
-            cell.font = kwargs["font"]
-        if "alignment" in kwargs:
-            cell.alignment = kwargs["alignment"]
-        if "border" in kwargs:
-            cell.border = kwargs["border"]
-
-
-def merge_title(ws, row, value, fill_color, font_obj, height=22):
-    ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=10)
-    cell = ws.cell(row, 1, value)
-    cell.fill = fill(fill_color)
-    cell.font = font_obj
-    cell.alignment = align("left", "center")
-    style_range(ws, row, 1, 10, fill=fill(fill_color), font=font_obj, alignment=align("left", "center"))
-    ws.row_dimensions[row].height = height
-    return cell
-
-
-def put(ws, row, col, value, *, bg=None, bold=False, color="000000", h="left", size=10):
+def put(ws, row, col, value, *, bg=None, bold=False, size=10, h="center", color="000000"):
     cell = ws.cell(row, col, value)
-    if bg:
-        cell.fill = fill(bg)
     cell.font = font(size=size, bold=bold, color=color)
     cell.alignment = align(h)
     cell.border = THIN
+    if bg:
+        cell.fill = fill(bg)
     return cell
 
 
-def put_date(ws, row, col, d, *, bg=None):
-    cell = put(ws, row, col, d, bg=bg, h="center")
+def put_date(ws, row, col, d, *, bg=None, bold=False):
+    cell = put(ws, row, col, d, bg=bg, bold=bold)
     cell.number_format = "YYYY-MM-DD"
     return cell
 
 
-def build_plan_sheet(wb: Workbook):
-    ws = wb.active
-    ws.title = "CAN开发计划"
+def merge_row(ws, row, c1, c2, value, **kwargs):
+    ws.merge_cells(start_row=row, start_column=c1, end_row=row, end_column=c2)
+    cell = put(ws, row, c1, value, **kwargs)
+    for col in range(c1 + 1, c2 + 1):
+        c = ws.cell(row, col)
+        c.border = THIN
+        if kwargs.get("bg"):
+            c.fill = fill(kwargs["bg"])
+        c.alignment = align(kwargs.get("h", "center"))
+    return cell
 
-    widths = {
-        "A": 6,
-        "B": 10,
-        "C": 38,
-        "D": 36,
-        "E": 13,
-        "F": 13,
-        "G": 14,
-        "H": 12,
-        "I": 10,
-        "J": 28,
-    }
+
+def build():
+    wdays = working_days(PLAN_START, PLAN_END)
+    dates = schedule(wdays)
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "工作任务分解"
+
+    widths = {"A": 8, "B": 22, "C": 28, "D": 12, "E": 12, "F": 20, "G": 26, "H": 10, "I": 10}
     for col, w in widths.items():
         ws.column_dimensions[col].width = w
 
-    merge_title(
-        ws,
-        1,
-        "FAN_F 高压风扇控制器  ·  CAN 开发计划",
-        "1F4E79",
-        font(16, True, "FFFFFF"),
-        26,
-    )
-    merge_title(
+    merge_row(ws, 1, 1, 9, "高压风扇开发计划", bg="1F4E79", bold=True, size=16, color="FFFFFF")
+    ws.row_dimensions[1].height = 28
+
+    merge_row(
         ws,
         2,
-        "给车厂看日期和节点，不看内部工时    窗口：2026-06-15 ～ 2026-10-30    密级：内部    只填黄色格    状态请按实际改",
-        "2E75B6",
-        font(10, False, "FFFFFF"),
-        18,
+        1,
+        9,
+        "工时已改成日期    窗口 2026-06-15～2026-10-30    编号 FAN_F-SW-100    版本 V1.1    密级：内部    只填黄色格",
+        bg="2E75B6",
+        size=9,
+        color="FFFFFF",
+        h="left",
     )
+    ws.row_dimensions[2].height = 18
 
-    merge_title(ws, 3, "一、文件与项目", "1F4E79", font(11, True, "FFFFFF"), 18)
+    put(ws, 3, 1, "供应商", bg="D6DCE4", bold=True)
+    merge_row(ws, 3, 2, 3, None, bg="FFF2CC")
+    put(ws, 3, 4, "零件号", bg="D6DCE4", bold=True)
+    merge_row(ws, 3, 5, 6, "FAN_F / ", bg="FFF2CC", h="left")
+    put(ws, 3, 7, "编制 / 日期", bg="D6DCE4", bold=True)
+    merge_row(ws, 3, 8, 9, None, bg="FFF2CC")
 
-    labels = [
-        (4, "供应商", None, "产品 / 零件号", "FAN_F / "),
-        (5, "文件编号", "FAN_F-SW-100", "版本 / 日期", "V1.0 / 2026-09-14"),
-        (6, "计划开始", PLAN_START, "计划结束", PLAN_END),
-        (7, "编制", None, "审核", None),
-        (8, "批准", None, "年份说明", "原表未写年，按 2026（今天 2026-09-14）。若是 2025 把本表日期整年改掉"),
-    ]
-    yellow_cells = {
-        (4, 2),
-        (4, 5),
-        (5, 5),
-        (7, 2),
-        (7, 5),
-        (8, 2),
-    }
-    for row, a, b, c, d in labels:
-        put(ws, row, 1, a, bg="D6DCE4", bold=True)
-        put(ws, row, 2, b, bg="FFF2CC" if (row, 2) in yellow_cells else "FFFFFF")
-        ws.merge_cells(start_row=row, start_column=2, end_row=row, end_column=3)
-        ws.cell(row, 3).border = THIN
-        if (row, 2) in yellow_cells:
-            ws.cell(row, 3).fill = fill("FFF2CC")
-        put(ws, row, 4, c, bg="D6DCE4", bold=True)
-        put(ws, row, 5, d, bg="FFF2CC" if (row, 5) in yellow_cells else "FFFFFF")
-        ws.merge_cells(start_row=row, start_column=5, end_row=row, end_column=10)
-        for col in range(6, 11):
-            ws.cell(row, col).border = THIN
-            ws.cell(row, col).fill = fill("FFF2CC" if (row, 5) in yellow_cells else "FFFFFF")
-        if row == 6:
-            ws.cell(row, 2).number_format = "YYYY-MM-DD"
-            ws.cell(row, 5).number_format = "YYYY-MM-DD"
-        ws.row_dimensions[row].height = 18
+    put(ws, 4, 1, "审核", bg="D6DCE4", bold=True)
+    merge_row(ws, 4, 2, 3, None, bg="FFF2CC")
+    put(ws, 4, 4, "批准", bg="D6DCE4", bold=True)
+    merge_row(ws, 4, 5, 6, None, bg="FFF2CC")
+    put(ws, 4, 7, "福田交样日", bg="D6DCE4", bold=True)
+    merge_row(ws, 4, 8, 9, None, bg="FFF2CC")
+    ws.row_dimensions[3].height = 20
+    ws.row_dimensions[4].height = 20
 
-    # customer gates
-    put(ws, 9, 1, "福田节点", bg="D6DCE4", bold=True)
-    put(ws, 9, 2, "A样 / 交样日（填客户日期）", bg="FFF2CC")
-    ws.merge_cells("B9:C9")
-    ws.cell(9, 3).border = THIN
-    ws.cell(9, 3).fill = fill("FFF2CC")
-    put(ws, 9, 4, "B样 / OTS / 其他", bg="D6DCE4", bold=True)
-    put(ws, 9, 5, None, bg="FFF2CC")
-    ws.merge_cells("E9:J9")
-    for col in range(6, 11):
-        ws.cell(9, col).border = THIN
-        ws.cell(9, col).fill = fill("FFF2CC")
-    ws.row_dimensions[9].height = 18
-
-    merge_title(
+    merge_row(
         ws,
-        10,
-        "格式要点：①工时改成开始/结束日期，人天不要发给主机厂  ②负责人要写，写成「责任岗位 + 姓名」，交给福田再补电话/邮箱  ③每条任务必须有交付物和状态  ④子计划必须能对上整车交样日  ⑤编制/审核/批准要签  详见「格式说明」表",
-        "FFF2CC",
-        font(9, False, "333333"),
-        28,
+        5,
+        1,
+        9,
+        "原表 112 人天；主路径 105 人天铺进 93 个工作日（已扣周末、端午 6/19、中秋 9/25、国庆 10/1–10/7），按人天比例压缩约 11%。"
+        "阶段五与开发并行，不占嵌入式主路径。负责人列保留（岗位）；姓名不必每行都写，接口人见下。"
+        "最右「人天」仅对内，不要发给主机厂。",
+        bg="FFF2CC",
+        size=9,
+        h="left",
     )
-
-    merge_title(ws, 11, "二、里程碑（对内关门日，须能托住上面的福田节点）", "1F4E79", font(11, True, "FFFFFF"), 18)
-
-    for col in range(1, 11):
-        put(ws, 12, col, "", bg="D6DCE4", bold=True, h="center")
-    put(ws, 12, 1, "序号", bg="D6DCE4", bold=True, h="center")
-    put(ws, 12, 2, "里程碑", bg="D6DCE4", bold=True, h="center")
-    ws.merge_cells("B12:C12")
-    ws.cell(12, 3).fill = fill("D6DCE4")
-    ws.cell(12, 3).border = THIN
-    put(ws, 12, 4, "目标日期", bg="D6DCE4", bold=True, h="center")
-    put(ws, 12, 5, "状态", bg="D6DCE4", bold=True, h="center")
-    put(ws, 12, 6, "含义", bg="D6DCE4", bold=True, h="center")
-    ws.merge_cells("F12:J12")
-    for col in range(7, 11):
-        ws.cell(12, col).fill = fill("D6DCE4")
-        ws.cell(12, col).border = THIN
-    ws.row_dimensions[12].height = 18
-
-    for i, (name, d, meaning, status) in enumerate(MILESTONES, 1):
-        r = 12 + i
-        put(ws, r, 1, i, h="center")
-        put(ws, r, 2, name, bold=True)
-        ws.merge_cells(start_row=r, start_column=2, end_row=r, end_column=3)
-        ws.cell(r, 3).border = THIN
-        put_date(ws, r, 4, d)
-        put(ws, r, 5, status, bg="FFF2CC", h="center")
-        put(ws, r, 6, meaning)
-        ws.merge_cells(start_row=r, start_column=6, end_row=r, end_column=10)
-        for col in range(7, 11):
-            ws.cell(r, col).border = THIN
-        ws.row_dimensions[r].height = 18
-
-    task_header_row = 19
-    merge_title(ws, task_header_row, "三、CAN 工作包（开始/结束日期已按窗口排完，不再列工时）", "1F4E79", font(11, True, "FFFFFF"), 18)
+    ws.row_dimensions[5].height = 36
 
     headers = [
-        "序号",
-        "阶段",
-        "任务",
-        "交付物",
+        "编号",
+        "阶段名称",
+        "任务名称",
         "开始日期",
         "结束日期",
-        "责任岗位",
-        "责任人",
+        "负责人",
+        "交付物/说明",
+        "人天(对内)",
         "状态",
-        "备注",
     ]
-    hr = task_header_row + 1
     for col, h in enumerate(headers, 1):
-        put(ws, hr, col, h, bg="D6DCE4", bold=True, h="center")
-    ws.row_dimensions[hr].height = 20
-    ws.auto_filter.ref = f"A{hr}:J{hr + len(TASKS)}"
-    ws.freeze_panes = f"A{hr + 1}"
+        put(ws, 6, col, h, bg="D6DCE4", bold=True)
+    ws.row_dimensions[6].height = 22
+    ws.freeze_panes = "A7"
+    ws.auto_filter.ref = "A6:I6"
 
-    first_task = hr + 1
-    for i, (phase, task, deliverable, start, end, role, note) in enumerate(TASKS, 1):
-        r = hr + i
+    r = 7
+    phase_rows = {p: [] for p in PHASE_FILL}
+    task_status_cells = []
+
+    for code, phase, task, pd, owner, deliverable, path in ROWS:
+        start, end, _n = dates[code]
         bg = PHASE_FILL[phase]
-        put(ws, r, 1, i, bg=bg, h="center")
-        put(ws, r, 2, phase, bg=bg, bold=True, h="center")
-        put(ws, r, 3, task, bg=bg)
-        put(ws, r, 4, deliverable, bg=bg)
-        put_date(ws, r, 5, start, bg=bg)
-        put_date(ws, r, 6, end, bg=bg)
-        put(ws, r, 7, role, bg=bg, h="center")
-        put(ws, r, 8, None, bg="FFF2CC", h="center")
-        put(ws, r, 9, "未开始", bg="FFF2CC", h="center")
-        put(ws, r, 10, note, bg=bg)
-        ws.row_dimensions[r].height = 32
-        if end < start:
-            raise ValueError(f"task {i} end before start")
-        if start < PLAN_START or end > PLAN_END:
-            raise ValueError(f"task {i} outside window: {start} {end}")
+        put(ws, r, 1, code, bg=bg)
+        put(ws, r, 2, phase, bg=bg)
+        put(ws, r, 3, task, bg=bg, h="left")
+        put_date(ws, r, 4, start, bg=bg)
+        put_date(ws, r, 5, end, bg=bg)
+        put(ws, r, 6, owner, bg=bg)
+        put(ws, r, 7, deliverable, bg=bg, h="left")
+        put(ws, r, 8, pd, bg=bg)
+        put(ws, r, 9, "未开始", bg="FFF2CC")
+        ws.row_dimensions[r].height = 22
+        phase_rows[phase].append(r)
+        task_status_cells.append(r)
+        r += 1
+        # subtotal immediately after last task of a group, except 阶段三合计 after App
+        last_of = {
+            "1.4": "阶段一 小计",
+            "2.7": "阶段二 小计",
+            "3.8": "BT 开发 小计",
+            "3.15": "App 开发 小计",
+            "4.6": "阶段四 小计",
+            "5.4": "阶段五 小计（与开发并行）",
+            "6.3": "阶段六 小计",
+        }
+        if code in last_of:
+            r = write_subtotal(ws, r, last_of[code], phase_rows, dates)
+            if code == "3.15":
+                r = write_subtotal(ws, r, "阶段三 合计", phase_rows, dates)
+            if code == "6.3":
+                r = write_subtotal(ws, r, "项目合计", phase_rows, dates)
 
-    last_task = hr + len(TASKS)
+    # merge phase name cells
+    for phase, rows in phase_rows.items():
+        if len(rows) >= 2:
+            ws.merge_cells(start_row=rows[0], start_column=2, end_row=rows[-1], end_column=2)
+            ws.cell(rows[0], 2).alignment = align()
 
-    dv = DataValidation(
-        type="list",
-        formula1='"未开始,进行中,已完成,暂停,取消"',
-        allow_blank=True,
-    )
-    dv.error = "请选：未开始 / 进行中 / 已完成 / 暂停 / 取消"
-    dv.errorTitle = "状态"
-    dv.prompt = "选择状态"
-    dv.promptTitle = "状态"
+    dv = DataValidation(type="list", formula1='"未开始,进行中,已完成,暂停,取消"', allow_blank=True)
     ws.add_data_validation(dv)
-    dv.add(f"I{first_task}:I{last_task}")
-    dv.add("E13:E18")
+    dv.add(f"I{task_status_cells[0]}:I{task_status_cells[-1]}")
 
     # contacts
-    contact_row = last_task + 1
-    merge_title(ws, contact_row, "四、接口人（交给福田的进度表必须能找到人；对内可先写岗位）", "1F4E79", font(11, True, "FFFFFF"), 18)
-    cr = contact_row + 1
-    for col, h in enumerate(["角色", "姓名", "电话", "邮箱", "备注", "", "", "", "", ""], 1):
-        if col <= 5:
-            put(ws, cr, col, h, bg="D6DCE4", bold=True, h="center")
-        else:
-            put(ws, cr, col, "", bg="D6DCE4")
-    ws.merge_cells(start_row=cr, start_column=5, end_row=cr, end_column=10)
-    for col in range(6, 11):
-        ws.cell(cr, col).fill = fill("D6DCE4")
-        ws.cell(cr, col).border = THIN
-
+    r += 1
+    merge_row(ws, r, 1, 9, "接口人（交给福田时填姓名和电话；对内可只保留上面的岗位）", bg="1F4E79", bold=True, color="FFFFFF", h="left")
+    ws.row_dimensions[r].height = 18
+    r += 1
+    for col, h in enumerate(["角色", "姓名", "电话", "邮箱", "备注"], 1):
+        put(ws, r, col, h, bg="D6DCE4", bold=True)
+    merge_row(ws, r, 5, 9, "备注", bg="D6DCE4", bold=True)
+    ws.cell(r, 5).value = "备注"
+    r += 1
     contacts = [
-        ("项目经理", "对福田的进度和节点"),
-        ("CAN / 应用软件", "技术接口"),
-        ("测试", "台架/实车问题"),
-        ("质量", "交样与文件"),
+        ("项目经理", "进度 / CIA / 对福田"),
+        ("系统工程师", "需求与设计"),
+        ("嵌入式开发工程师", "Bootloader / App / CAN"),
+        ("测试工程师", "刷写与诊断测试"),
     ]
-    for i, (role, note) in enumerate(contacts):
-        r = cr + 1 + i
-        put(ws, r, 1, role, bg="FFFFFF", bold=True)
+    for role, note in contacts:
+        put(ws, r, 1, role, bold=True)
         put(ws, r, 2, None, bg="FFF2CC")
         put(ws, r, 3, None, bg="FFF2CC")
         put(ws, r, 4, None, bg="FFF2CC")
-        put(ws, r, 5, note)
-        ws.merge_cells(start_row=r, start_column=5, end_row=r, end_column=10)
-        for col in range(6, 11):
-            ws.cell(r, col).border = THIN
+        merge_row(ws, r, 5, 9, note, h="left")
         ws.row_dimensions[r].height = 18
+        r += 1
 
-    last_contact = cr + len(contacts)
-
-    # change log
-    ch = last_contact + 1
-    merge_title(ws, ch, "五、变更记录", "1F4E79", font(11, True, "FFFFFF"), 18)
-    put(ws, ch + 1, 1, "版本", bg="D6DCE4", bold=True, h="center")
-    put(ws, ch + 1, 2, "日期", bg="D6DCE4", bold=True, h="center")
-    put(ws, ch + 1, 3, "变更说明", bg="D6DCE4", bold=True)
-    ws.merge_cells(start_row=ch + 1, start_column=3, end_row=ch + 1, end_column=10)
-    for col in range(4, 11):
-        ws.cell(ch + 1, col).fill = fill("D6DCE4")
-        ws.cell(ch + 1, col).border = THIN
-    put(ws, ch + 2, 1, "V1.0", h="center")
-    put_date(ws, ch + 2, 2, AS_OF)
-    put(
+    r += 1
+    merge_row(ws, r, 1, 9, "变更记录", bg="1F4E79", bold=True, color="FFFFFF", h="left")
+    r += 1
+    put(ws, r, 1, "版本", bg="D6DCE4", bold=True)
+    put(ws, r, 2, "日期", bg="D6DCE4", bold=True)
+    merge_row(ws, r, 3, 9, "说明", bg="D6DCE4", bold=True, h="left")
+    ws.cell(r, 3).value = "说明"
+    r += 1
+    put(ws, r, 1, "V1.1")
+    put_date(ws, r, 2, AS_OF)
+    merge_row(
         ws,
-        ch + 2,
+        r,
         3,
-        "按主机厂进度表格式重建：工时改为起止日期；窗口 2026-06-15～2026-10-30；补交付物/岗位/责任人/状态/签署/接口人。原《高压风扇开发计划.xlsx》未随消息上传，工作包按高压风扇 CAN 常规分解，收到原表工时后可按人天比例重排。",
+        9,
+        "按上传的《高压风扇开发计划.xlsx》把「工时(人天)」改成开始/结束日期；负责人列保留；补状态、签署、接口人。年份按 2026。",
+        h="left",
     )
-    ws.merge_cells(start_row=ch + 2, start_column=3, end_row=ch + 2, end_column=10)
-    for col in range(4, 11):
-        ws.cell(ch + 2, col).border = THIN
-    ws.row_dimensions[ch + 2].height = 36
+    ws.row_dimensions[r].height = 28
 
     ws.page_setup.orientation = "landscape"
     ws.page_setup.paperSize = ws.PAPERSIZE_A3
     ws.page_setup.fitToPage = True
     ws.page_setup.fitToWidth = 1
     ws.page_setup.fitToHeight = 1
-    ws.page_setup.horizontalCentered = True
     ws.sheet_properties.pageSetUpPr.fitToPage = True
-    ws.page_margins = PageMargins(left=0.4, right=0.4, top=0.5, bottom=0.5, header=0.2, footer=0.2)
-    ws.print_title_rows = "1:2"
+    ws.page_margins = PageMargins(left=0.4, right=0.4, top=0.5, bottom=0.5)
+    ws.print_title_rows = "1:6"
     ws.sheet_view.showGridLines = False
     ws.sheet_properties.tabColor = "1F4E79"
 
-    return first_task, last_task
-
-
-def build_notes_sheet(wb: Workbook):
-    ws = wb.create_sheet("格式说明")
-    ws.column_dimensions["A"].width = 8
-    ws.column_dimensions["B"].width = 22
-    ws.column_dimensions["C"].width = 88
-    for col in range(4, 11):
-        ws.column_dimensions[get_column_letter(col)].width = 3
-
-    ws.merge_cells("A1:C1")
-    ws["A1"] = "这份 CAN 计划相对原「工时表」要改什么（按福田/主机厂常见要求，不是你们公司内部工时算法）"
-    ws["A1"].fill = fill("1F4E79")
-    ws["A1"].font = font(14, True, "FFFFFF")
-    ws["A1"].alignment = align("left", "center")
-    style_range(ws, 1, 1, 3, fill=fill("1F4E79"), font=font(14, True, "FFFFFF"), alignment=align("left", "center"))
-    ws.row_dimensions[1].height = 24
-
-    ws.merge_cells("A2:C2")
-    ws["A2"] = "结论先看第 1 条：负责人列要保留，但不要只写一个名字。工时列不要给车厂。"
-    ws["A2"].fill = fill("2E75B6")
-    ws["A2"].font = font(10, False, "FFFFFF")
-    style_range(ws, 2, 1, 3, fill=fill("2E75B6"), font=font(10, False, "FFFFFF"), alignment=align("left", "center"))
-    ws.row_dimensions[2].height = 18
-
-    headers = ["序号", "项目", "怎么处理"]
-    for col, h in enumerate(headers, 1):
-        put(ws, 3, col, h, bg="D6DCE4", bold=True, h="center")
-    ws.row_dimensions[3].height = 18
-
-    rows = [
-        (
-            "负责人",
-            "要写。福田 SOR / 供应商进度表都要能找到责任人和联系方式；IATF+APQP 也要求核心小组角色清楚。"
-            "正确写法是「责任岗位 + 姓名」，交给福田的版本再加电话、邮箱（见本表第四节）。"
-            "不要做成 10 列 RASIC——那是 APQP 总计划或 CIA 接口协议用的。"
-            "对内周例会表可以只写岗位。芯片原厂（NXP）不必写进负责人，除非他们真的承接本行工作。",
-        ),
-        (
-            "工时 → 日期",
-            "主机厂要的是日历关门日，用来对整车 A/B/C/OTS/交样，不是你们内部人天。"
-            "人天给出去会被拿去压价或压缩周期。本表已改成开始日期、结束日期。"
-            "工期可用日期相减在内部另算，不要作为对客列。"
-            "原表未上传，本表按 2026-06-15～2026-10-30 窗口和高压风扇 CAN 常规工作包排期；"
-            "你把原表发来后，可按「人天占比 × 窗口工作日」重算每行起止，并保留搭接。",
-        ),
-        (
-            "交付物",
-            "车厂进度表每一行都要能验收。空任务名 + 一个日期过不了评审。"
-            "本表每行都有交付物；没有产出的行不要放进来。",
-        ),
-        (
-            "对齐整车节点",
-            "福田/主机厂评审看的是你的关门日能不能托住交样日，不是看你忙不忙。"
-            "第一节黄格填客户 A样/B样/OTS/交样日；第五节里程碑必须早于或等于对应交样。"
-            "交样软件冻结不得晚于客户交样日。",
-        ),
-        (
-            "文件头与签署",
-            "按福田文件习惯补：编号、版本、密级、编制/审核/批准、变更记录。"
-            "只有任务列表、没有签署，质量/项目不认这是受控文件。",
-        ),
-        (
-            "状态与变更",
-            "每次对客同步改状态和版本。节点移动要写变更记录，并通知福田项目接口，不要只改日期不留痕。",
-        ),
-        (
-            "和 CIA 的关系",
-            "本表是 CAN 功能开发子计划，不是 CIA 3-1-1 网络安全开发计划。"
-            "调试口关闭、量产密钥、漏洞响应仍走 CIA 那套表（CS-200/CS-300/CS-310）。"
-            "两套节点不要互相打架：交连续生产态样件的日期，应落在本表 M5 附近。",
-        ),
-        (
-            "中英文",
-            "CIA 8-3 要求正式网络安全交付双语。这份内部/项目进度表用中文即可。"
-            "只有当福田明确要英文进度表时再补英文明细，不要和 CIA 手册绑在一起翻译。",
-        ),
-        (
-            "不要写进对客表",
-            "内部人天、成本、加班、未对客户承诺的缓冲、个人评价、与芯片原厂的商务条款。"
-            "FreeMASTER 工程调试细节可对内保留，对客只写「调试口已隔离/关闭」。",
-        ),
-        (
-            "年份",
-            "你只写了 6 月 15 日～10 月 30 日。按今天 2026-09-14，本表用 2026。"
-            "若实际窗口是 2025，整表日期改年即可，工作包顺序不用动。",
-        ),
+    notes = wb.create_sheet("排期说明")
+    notes.column_dimensions["A"].width = 8
+    notes.column_dimensions["B"].width = 22
+    notes.column_dimensions["C"].width = 90
+    merge_row(notes, 1, 1, 3, "日期是怎么从工时算出来的", bg="1F4E79", bold=True, size=14, color="FFFFFF", h="left")
+    notes.row_dimensions[1].height = 24
+    put(notes, 2, 1, "序号", bg="D6DCE4", bold=True)
+    put(notes, 2, 2, "项", bg="D6DCE4", bold=True)
+    put(notes, 2, 3, "说明", bg="D6DCE4", bold=True)
+    rules = [
+        ("窗口", "2026-06-15（周一）至 2026-10-30（周五）。原表未写年，按今天 2026-09-14 取 2026。"),
+        ("工作日", "只排周一到周五；不排 2026-06-19 端午、2026-09-25 中秋、2026-10-01～10-07 国庆。窗口内共 93 个工作日。"),
+        ("主路径", "阶段一～四 + 阶段六共 105 人天、35 条任务，按人天比例铺满 93 个工作日（每条至少 1 天，最大余数法）。所以 8 人天的 UDS 会变成 7 个工作日，不是 1:1。"),
+        ("阶段五", "信息安全文档 7 人天不进主路径：设计评审结束后并行（系统/项目/测试），人天不压缩。"),
+        ("负责人", "原列保留，写的是岗位，这符合主机厂进度表。交给福田再在「接口人」补姓名、电话、邮箱。不必做 RASIC。"),
+        ("人天列", "只对内核对工作量。对客打印可隐藏 H 列。"),
+        ("状态", "先填「未开始」，按实际改。4.2 在国庆前结束，4.3 从 10-08 接着做。"),
     ]
+    for i, (item, text) in enumerate(rules, 1):
+        put(notes, 2 + i, 1, i)
+        put(notes, 2 + i, 2, item, bg="FFF2CC", bold=True)
+        put(notes, 2 + i, 3, text, h="left")
+        notes.row_dimensions[2 + i].height = 36
+    notes.sheet_view.showGridLines = False
+    notes.page_setup.orientation = "landscape"
+    notes.page_setup.fitToPage = True
+    notes.sheet_properties.pageSetUpPr.fitToPage = True
+    notes.sheet_properties.tabColor = "C65911"
 
-    for i, (item, how) in enumerate(rows, 1):
-        r = 3 + i
-        put(ws, r, 1, i, bg="FFFFFF", bold=True, h="center")
-        put(ws, r, 2, item, bg="FFF2CC", bold=True)
-        put(ws, r, 3, how, bg="FFFFFF")
-        ws.row_dimensions[r].height = 68
-
-    ws.freeze_panes = "A4"
-    ws.page_setup.orientation = "landscape"
-    ws.page_setup.paperSize = ws.PAPERSIZE_A4
-    ws.page_setup.fitToPage = True
-    ws.page_setup.fitToWidth = 1
-    ws.page_setup.fitToHeight = 1
-    ws.sheet_properties.pageSetUpPr.fitToPage = True
-    ws.page_margins = PageMargins(left=0.5, right=0.5, top=0.5, bottom=0.5)
-    ws.sheet_view.showGridLines = False
-    ws.sheet_properties.tabColor = "C65911"
+    out1 = "/workspace/docs/CAN/高压风扇开发计划.xlsx"
+    out2 = "/workspace/docs/CAN/FAN_F-SW-100_高压风扇CAN开发计划.xlsx"
+    wb.save(out1)
+    copyfile(out1, out2)
+    return out1, dates, wdays
 
 
-def main():
-    wb = Workbook()
-    build_plan_sheet(wb)
-    build_notes_sheet(wb)
-    out = "/workspace/docs/CAN/FAN_F-SW-100_高压风扇CAN开发计划.xlsx"
-    wb.save(out)
-    print("wrote", out)
+def write_subtotal(ws, r, label, phase_rows, dates):
+    if label == "阶段三 合计":
+        codes = [x[0] for x in ROWS if x[1] in ("软件开发 — Bootloader", "软件开发 — Application")]
+        pd = sum(x[3] for x in ROWS if x[1] in ("软件开发 — Bootloader", "软件开发 — Application"))
+    elif label == "项目合计":
+        codes = [x[0] for x in ROWS]
+        pd = sum(x[3] for x in ROWS)
+    else:
+        phase = {
+            "阶段一 小计": "需求分析与评审",
+            "阶段二 小计": "架构与详细设计",
+            "BT 开发 小计": "软件开发 — Bootloader",
+            "App 开发 小计": "软件开发 — Application",
+            "阶段四 小计": "测试验证",
+            "阶段五 小计（与开发并行）": "信息安全文档",
+            "阶段六 小计": "交付与客户支持",
+        }[label]
+        codes = [x[0] for x in ROWS if x[1] == phase]
+        pd = sum(x[3] for x in ROWS if x[1] == phase)
+    starts = [dates[c][0] for c in codes]
+    ends = [dates[c][1] for c in codes]
+    bg = "BFBFBF"
+    put(ws, r, 1, "", bg=bg, bold=True)
+    put(ws, r, 2, "", bg=bg, bold=True)
+    put(ws, r, 3, label, bg=bg, bold=True)
+    put_date(ws, r, 4, min(starts), bg=bg, bold=True)
+    put_date(ws, r, 5, max(ends), bg=bg, bold=True)
+    put(ws, r, 6, "", bg=bg)
+    put(ws, r, 7, "", bg=bg)
+    put(ws, r, 8, pd, bg=bg, bold=True)
+    put(ws, r, 9, "", bg=bg)
+    ws.row_dimensions[r].height = 18
+    return r + 1
 
 
 if __name__ == "__main__":
-    main()
+    path, dates, wdays = build()
+    print("wrote", path)
+    print("working days", len(wdays), wdays[0], wdays[-1])
+    for code, phase, task, pd, owner, deliverable, path_name in ROWS:
+        s, e, n = dates[code]
+        print(f"{code:5} {pd:2}pd {n:2}wd {s} ~ {e}  {task}")
