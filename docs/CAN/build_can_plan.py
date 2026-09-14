@@ -172,11 +172,11 @@ def build():
     ws = wb.active
     ws.title = "工作任务分解"
 
-    widths = {"A": 8, "B": 22, "C": 26, "D": 12, "E": 12, "F": 12, "G": 20, "H": 26}
+    widths = {"A": 8, "B": 22, "C": 28, "D": 12, "E": 12, "F": 12, "G": 20}
     for col, w in widths.items():
         ws.column_dimensions[col].width = w
 
-    merge_row(ws, 1, 1, 8, "高压风扇开发计划", bold=True, size=16)
+    merge_row(ws, 1, 1, 7, "高压风扇开发计划", bold=True, size=16)
     ws.row_dimensions[1].height = 33
 
     put(ws, 2, 1, "项目", bold=True)
@@ -185,8 +185,7 @@ def build():
     put(ws, 2, 4, "FAN_F")
     put(ws, 2, 5, "版本", bold=True)
     put(ws, 2, 6, "V1.2")
-    put(ws, 2, 7, "日期", bold=True)
-    put_date(ws, 2, 8, AS_OF)
+    put_date(ws, 2, 7, AS_OF)
     ws.row_dimensions[2].height = 20
 
     put(ws, 3, 1, "编制", bold=True)
@@ -196,8 +195,7 @@ def build():
     put(ws, 3, 5, "批准", bold=True)
     put(ws, 3, 6, "")
     put(ws, 3, 7, "")
-    put(ws, 3, 8, "")
-    ws.merge_cells("F3:H3")
+    ws.merge_cells("F3:G3")
     ws.row_dimensions[3].height = 20
 
     headers = [
@@ -208,13 +206,12 @@ def build():
         "结束日期",
         "客户节点",
         "负责人",
-        "交付物",
     ]
     for col, h in enumerate(headers, 1):
         put(ws, 4, col, h, bold=True)
     ws.row_dimensions[4].height = 22
     ws.freeze_panes = "A5"
-    ws.auto_filter.ref = "A4:H4"
+    ws.auto_filter.ref = "A4:G4"
 
     r = 5
     phase_rows = {}
@@ -228,25 +225,9 @@ def build():
         put_date(ws, r, 5, end)
         put(ws, r, 6, gate)
         put(ws, r, 7, owner)
-        put(ws, r, 8, deliverable, h="left")
         ws.row_dimensions[r].height = 33
         phase_rows.setdefault(phase, []).append(r)
         r += 1
-        last_of = {
-            "1.5": "阶段一 小计",
-            "2.7": "阶段二 小计",
-            "3.8": "BT 开发 小计",
-            "3.15": "App 开发 小计",
-            "4.7": "阶段四 小计",
-            "5.4": "阶段五 小计",
-            "6.4": "阶段六 小计",
-        }
-        if code in last_of:
-            r = write_subtotal(ws, r, last_of[code], dates)
-            if code == "3.15":
-                r = write_subtotal(ws, r, "阶段三 合计", dates)
-            if code == "6.4":
-                r = write_subtotal(ws, r, "项目合计", dates)
 
     for phase, rows in phase_rows.items():
         if len(rows) >= 2:
@@ -268,36 +249,6 @@ def build():
     wb.save(out1)
     copyfile(out1, out2)
     return out1, dates, wdays
-
-
-def write_subtotal(ws, r, label, dates):
-    if label == "阶段三 合计":
-        codes = [x[0] for x in ROWS if x[1] in ("软件开发 — Bootloader", "软件开发 — Application")]
-    elif label == "项目合计":
-        codes = [x[0] for x in ROWS]
-    else:
-        phase = {
-            "阶段一 小计": "需求分析与评审",
-            "阶段二 小计": "架构与详细设计",
-            "BT 开发 小计": "软件开发 — Bootloader",
-            "App 开发 小计": "软件开发 — Application",
-            "阶段四 小计": "测试验证",
-            "阶段五 小计": "信息安全文档",
-            "阶段六 小计": "交付与客户支持",
-        }[label]
-        codes = [x[0] for x in ROWS if x[1] == phase]
-    starts = [dates[c][0] for c in codes]
-    ends = [dates[c][1] for c in codes]
-    put(ws, r, 1, "", bold=True)
-    put(ws, r, 2, "", bold=True)
-    put(ws, r, 3, label, bold=True)
-    put_date(ws, r, 4, min(starts), bold=True)
-    put_date(ws, r, 5, max(ends), bold=True)
-    put(ws, r, 6, "")
-    put(ws, r, 7, "")
-    put(ws, r, 8, "")
-    ws.row_dimensions[r].height = 16.5
-    return r + 1
 
 
 if __name__ == "__main__":
