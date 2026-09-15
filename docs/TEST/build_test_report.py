@@ -340,21 +340,21 @@ def build():
         ws.cell(1, c).font = font(16, True)
     ws.row_dimensions[1].height = 28
 
-    r = 3
+    r = 2
     put(ws, r, 1, "1、 测试范围", bold=True, size=12)
     ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=5)
     ws.row_dimensions[r].height = 22
-    r = write_table(ws, r + 1, SCOPE, 3) + 1
+    r = write_table(ws, r + 1, SCOPE, 3, last_span=5)
 
     put(ws, r, 1, "2 测试制品", bold=True, size=12)
     ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=5)
     ws.row_dimensions[r].height = 22
-    r = write_table(ws, r + 1, ARTIFACTS, 1, last_span=4) + 1
+    r = write_table(ws, r + 1, ARTIFACTS, 1, last_span=5)
 
     put(ws, r, 1, "3 CAN通信记录", bold=True, size=12)
     ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=5)
     ws.row_dimensions[r].height = 22
-    r = write_table(ws, r + 1, CAN_LOG, 2, last_span=4) + 1
+    r = write_table(ws, r + 1, CAN_LOG, 2, last_span=5)
 
     put(ws, r, 1, "5 产品身份DID测试结果", bold=True, size=12)
     ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=5)
@@ -362,8 +362,10 @@ def build():
     r = write_table(ws, r + 1, DID, 5)
     ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=5)
     put(ws, r, 1, DID_NOTE, size=10, h="left")
+    for c in range(1, 6):
+        ws.cell(r, c).border = THIN
     ws.row_dimensions[r].height = height_for((DID_NOTE,), [sum(COL_W.values())], min_h=32, max_h=48)
-    r += 2
+    r += 1
 
     put(ws, r, 1, "6 全量测试结果", bold=True, size=12)
     ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=5)
@@ -371,15 +373,17 @@ def build():
     write_table(ws, r + 1, FULL, 5)
 
     ws.page_setup.orientation = "landscape"
-    ws.page_setup.paperSize = ws.PAPERSIZE_A4
+    ws.page_setup.paperSize = ws.PAPERSIZE_A3
     ws.page_setup.fitToPage = True
     ws.page_setup.fitToWidth = 1
-    ws.page_setup.fitToHeight = 0
+    ws.page_setup.fitToHeight = 1
     ws.sheet_properties.pageSetUpPr.fitToPage = True
-    ws.page_margins = PageMargins(left=0.5, right=0.5, top=0.6, bottom=0.6)
+    ws.page_margins = PageMargins(left=0.4, right=0.4, top=0.5, bottom=0.5)
     ws.sheet_view.showGridLines = False
     ws.freeze_panes = "A2"
     ws.print_title_rows = "1:1"
+    ws.row_breaks.brk = []
+    ws.col_breaks.brk = []
 
     out = "/workspace/docs/TEST/04_FAN_F系统测试报告.xlsx"
     wb.save(out)
