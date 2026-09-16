@@ -1,0 +1,100 @@
+#! armclang --target=arm-arm-none-eabi -mcpu=cortex-m4 -xc -E -DSTART_FROM_FLASH -D__flash_vector_table__
+/*
+ * FAN_CAN_APP_SAFE_RAMP scatter for ARM Compiler 6.
+ * Based on NXP S32K144W_64_flash.sct, plus RW_BOOT_APP_MAILBOX so
+ * startup_S32K144W.S can resolve Image$$RW_BOOT_APP_MAILBOX$$Base.
+ *
+ * If FAN_F_ECU\linker\fan_f_ecu.sct uses a different mailbox address/size,
+ * change m_boot_app_mailbox_start / m_boot_app_mailbox_size to match.
+ */
+
+#if (defined(__flash_vector_table__))
+  #define __ram_vector_table_size__    0x00000000
+#else
+  #define __ram_vector_table_size__    0x00000400
+#endif
+
+#define m_interrupts_start             0x00000000
+#define m_interrupts_size              0x00000400
+
+#define m_flash_config_start           0x00000400
+#define m_flash_config_size            0x00000010
+
+#define m_text_start                   0x00000410
+#define m_text_size                    0x0007FBF0
+
+#define m_interrupts_ram_start         0x1FFF8000
+#define m_interrupts_ram_size          __ram_vector_table_size__
+
+#define m_data_start                   0x1FFF8000 + __ram_vector_table_size__
+#define m_data_size                    0x00008000 - __ram_vector_table_size__
+
+#define m_data_2_start                 0x20000000
+#define m_data_2_size                  0x00007000
+
+#define m_boot_app_mailbox_start       0x20000000
+#define m_boot_app_mailbox_size        0x00000080
+
+#if (defined(__stack_size__))
+  #define Stack_Size                   __stack_size__
+#else
+  #define Stack_Size                   0x0400
+#endif
+
+#if (defined(__heap_size__))
+  #define Heap_Size                    __heap_size__
+#else
+  #define Heap_Size                    0x0400
+#endif
+
+LR_m_text m_interrupts_start m_text_start+m_text_size-m_interrupts_start {
+  VECTOR_ROM m_interrupts_start m_interrupts_size {
+    startup_S32K1*.o (RESET +First)
+  }
+
+#if (defined(__flash_vector_table__))
+  VECTOR_RAM m_interrupts_start EMPTY 0 {
+  }
+#else
+  VECTOR_RAM m_interrupts_ram_start EMPTY m_interrupts_ram_size {
+  }
+#endif
+
+  ER_m_flash_config m_flash_config_start FIXED m_flash_config_size {
+    * (FlashConfig)
+  }
+
+  ER_m_text_const m_text_start {
+    .ANY (+RO-DATA)
+  }
+
+  ER_m_text +0 m_text_size {
+    * (InRoot$$Sections)
+    .ANY (+RO)
+  }
+
+  RW_m_data m_data_start {
+    .ANY (+RW-DATA)
+  }
+
+  RW_m_code +0 m_data_size {
+    .ANY (.code_ram)
+  }
+
+  RW_BOOT_APP_MAILBOX m_boot_app_mailbox_start UNINIT EMPTY m_boot_app_mailbox_size {
+  }
+
+  RW_m_custom_section +0 ALIGN 0x4 {
+    .ANY (.customSection)
+  }
+
+  RW_m_data_2 +0 m_data_2_size-Stack_Size-Heap_Size-m_boot_app_mailbox_size {
+    .ANY (+ZI)
+  }
+
+  ARM_LIB_HEAP ((ImageLimit(RW_m_data_2) == m_data_2_start) ? m_data_2_start : +0) EMPTY Heap_Size {
+  }
+
+  ARM_LIB_STACK m_data_2_start+m_data_2_size EMPTY -Stack_Size {
+  }
+}

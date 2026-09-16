@@ -1,20 +1,17 @@
-L6218E Image$$RW_BOOT_APP_MAILBOX$$Base 修复
+覆盖 scatter，不要改 uvprojx
 
-对话框已经好了。这个错是链接：startup_S32K144W.S 引用了
+L6218E 还在，说明工程里的 linker\FanCanAppTest.sct 仍没有名为 RW_BOOT_APP_MAILBOX 的执行域。
+不要手动改几行，整文件替换。
+
+1. 退出 Keil。
+2. 把工程里的 linker\FanCanAppTest.sct 改名备份成 FanCanAppTest.sct.bak。
+3. 用本仓库 linker\FanCanAppTest.sct 覆盖到同样路径。
+   保存成 ANSI/UTF-8 无 BOM。扩展名必须是 .sct。
+4. 打开工程 → Rebuild。
+
+这份 sct 在 SRAM_U 开头 0x20000000 留了 0x80 字节 UNINIT 邮箱，链接器会生成：
   Image$$RW_BOOT_APP_MAILBOX$$Base
-这个符号只有 scatter 里存在名为 RW_BOOT_APP_MAILBOX 的执行域时，链接器才会生成。
 
-FAN_F_ECU 的 fan_f_ecu.sct 里有这一块，所以 ECU 能链过。
-FAN_CAN_APP_SAFE_RAMP 的 FanCanAppTest.sct 里没有，所以只报这一个 L6218E。
-
-【操作】
-1. 用记事本打开：
-     FAN_F_ECU\linker\fan_f_ecu.sct
-   搜索：RW_BOOT_APP_MAILBOX
-2. 把包含这个名字的整段执行域拷出来（从名字那一行到配对的 }）。
-3. 打开：
-     FAN_CAN_APP_SAFE_RAMP\linker\FanCanAppTest.sct
-   贴进 RAM 那个大括号里，和其它 RW_ 段并列。不要贴到 Flash 的 ER_m_text 里面。
-4. 保存，Rebuild。不要改 uvprojx。
-
-地址必须和 ECU 完全一致。也可对照 inc\BootApp_SharedMailbox.h 里的基址/长度。
+若 ECU 的 fan_f_ecu.sct 里 RW_BOOT_APP_MAILBOX 不是 0x20000000 / 0x80，
+把本文件顶部的 m_boot_app_mailbox_start / m_boot_app_mailbox_size 改成和 ECU 一样。
+若备份的旧 sct 里 Flash 不是从 0x00000000 开始，把 m_interrupts_start 改成旧文件的 App 起始地址。
