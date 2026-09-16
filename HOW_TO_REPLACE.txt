@@ -1,32 +1,26 @@
 把修好的 FAN_CAN_APP_SAFE_RAMP.uvprojx 放回 Keil 工程
 
-【这次弹 Illegal start vector 的真正原因】
-IROM1 = 0x0 / 0x80000、Startup 已勾选，都是对的。
-Keil 仍报 Illegal start vector，是因为 Device 写成了父型号 S32K144W。
-S32_SDK_DFP 1.5.1 里父型号没有处理器时钟/完整 RAM 描述；
-真正可选的完整器件是料号 S32K144WAxxxLFx（工程里 Flash 算法路径本来就是它）。
+对照能打开 Options 的 FAN_F_ECU 之后，Device=S32K144W 不是原因。
+两边 ArmAdsMisc（IROM1/StupSel/RoSelD）也一样。真正差别是：
 
-不要管：
-- NXP S32K144Wxxx (deprecated) —— 这个 pack 全部标了过期，FAN_F_ECU 也一样
-- Xtal = <undefined> —— MDK 5.35 以后 uvprojx 都这样，不影响编译
+  FAN_F_ECU（正常）                         SAFE_RAMP（原来会弹 Illegal start vector）
+  RTE: CMSIS CORE + Device Startup         RTE 空
+  工程组 ::CMSIS / ::Device                没有这两组，启动文件塞在 Platform 里
+  DriverSelection=4096  Flash3="" ()       DriverSelection=-1  Flash3 空
+
+Keil 认启动向量靠 RTE 的 Device::Startup，不是只看 IROM1 勾选。
 
 【替换】
 1. 完全退出 Keil。
-2. 覆盖 FAN_CAN_APP_SAFE_RAMP.uvprojx。
-   编码 UTF-8 无 BOM。不要另存成 Unicode/UTF-16。
-3. 启动文件磁盘上用小写 .s（若还没有）：
-     cd RTE\Device\S32K144W
-     ren startup_S32K144W.S startup_S32K144W.tmp
-     ren startup_S32K144W.tmp startup_S32K144W.s
-4. 删掉工程目录里的这两个（Keil 会自动再生，不影响源码）：
-     FAN_CAN_APP_SAFE_RAMP.uvoptx
-     FAN_CAN_APP_SAFE_RAMP.uvguix.*
-5. 打开工程。若弹出 pack 过期提示，点确定/关闭即可。
-6. Options for Target：
-   - Device 应显示 NXP S32K144WAxxxLFx (deprecated)
-   - 点 Asm、Linker、确定，不应再弹 Illegal start vector
-   - Linker 仍用 .\linker\FanCanAppTest.sct
-7. Rebuild。
+2. 覆盖 FAN_CAN_APP_SAFE_RAMP.uvprojx（UTF-8 无 BOM）。
+3. 删掉 FAN_CAN_APP_SAFE_RAMP.uvoptx 和 FAN_CAN_APP_SAFE_RAMP.uvguix.*
+4. 确认磁盘上仍有：
+     RTE\Device\S32K144W\startup_S32K144W.S   （或 .s，Windows 不区分）
+     RTE\Device\S32K144W\system_S32K144W.c
+     RTE\Device\S32K144W\system_S32K144W.h
+     RTE\Device\S32K144W\startup.c
+5. 打开工程。工程窗口应出现 ::CMSIS 和 ::Device。
+6. Options：Device 仍是 NXP S32K144W (deprecated)，点确定不应再弹 Illegal start vector。
+7. Rebuild。启动文件改由 ::Device 编译，不要再在 Platform 组里留一份。
 
-若 Options 仍弹窗：点“取消”（不要点确定），直接点 Rebuild。
-汇编选项已经写在 uvprojx 里（armasm + --cpreproc），不必进 Options 也能编。
+scatter 仍是 .\linker\FanCanAppTest.sct，应用源文件没动。
