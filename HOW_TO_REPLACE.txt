@@ -1,0 +1,28 @@
+芯片是同一颗 S32K144W。Device、pack、SRAM_L(0x1FFF8000)、SRAM_U(0x20000000)、RTE Device::Startup 都可以跟 FAN_F_ECU 一样。
+
+.sct 不是芯片手册。它是「这一份固件」的链接布局：向量放哪、代码占哪段 flash、RAM 怎么切。
+FAN_F_ECU 的 fan_f_ecu.sct = 引导程序镜像。
+FAN_CAN_APP_SAFE_RAMP 的 FanCanAppTest.sct = 应用程序镜像（宏 START_FROM_FLASH）。
+
+同一颗芯片上可以同时存在 boot 和 app，所以两份 .sct 必须不同：
+- flash 原点/长度不同（boot 占开头，app 从自己的入口起；本工程当前是整片 0x0/0x80000）
+- RESET 对象、ER/RW 区域名和切分不同
+- 只有 RW_BOOT_APP_MAILBOX 这一块 RAM 必须地址和长度完全一致（boot/app 握手）
+
+把 fan_f_ecu.sct 整份指给 SAFE_RAMP，等于把应用按引导程序去链接：向量、代码、栈会落到 boot 的位置，不能跑。
+L6218E 缺 Image$$RW_BOOT_APP_MAILBOX$$Base，是因为 app 的 scatter 里少了这个执行区，不是因为没用 ECU 那份 .sct。
+
+正确做法：Scatter File 保持 .\linker\FanCanAppTest.sct。
+打开 ECU 的 fan_f_ecu.sct，只搜 RW_BOOT_APP_MAILBOX，把那一行的地址和长度抄到 FanCanAppTest.sct 对应行。不要改 LR_m_text / VECTOR_ROM / ER_m_text。
+
+覆盖步骤：
+1. 退出 Keil。旧文件改名 FanCanAppTest.sct.bak。
+2. 用这份 FanCanAppTest.sct 覆盖工程 linker\ 目录。
+   VS Code / 记事本另存为 ANSI 或 UTF-8 无 BOM。不要 Unicode。
+   不要用微信/邮件直接保存；可先存成 .txt 再改名为 .sct。
+   这一份没有 #! 也没有 #if，避免 L6226E %TSD-Header-。
+3. Options → Linker：Scatter File 仍是 .\linker\FanCanAppTest.sct，未勾选 Use Memory Layout from Target Dialog。
+4. Rebuild。
+
+若仍 L6226E %TSD-Header-：另存为 .txt 再改名为 .sct。
+若仍 L6218E：对照 ECU 的 RW_BOOT_APP_MAILBOX 行改地址/长度，不要换整份 fan_f_ecu.sct。

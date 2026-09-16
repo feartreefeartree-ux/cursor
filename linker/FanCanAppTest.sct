@@ -1,0 +1,53 @@
+; FAN_CAN_APP_SAFE_RAMP application scatter for ARM Compiler 6.
+; Same MCU as FAN_F_ECU (S32K144W). Not the same image: do not use fan_f_ecu.sct.
+; Plain scatter only. No shebang, no preprocessor directives.
+; Mailbox: Image$$RW_BOOT_APP_MAILBOX$$Base at 0x20000000, size 0x80.
+; Copy only RW_BOOT_APP_MAILBOX base/size from ECU if that file uses another address.
+
+LR_m_text 0x00000000 0x00080000 {
+
+  VECTOR_ROM 0x00000000 0x00000400 {
+    startup_S32K1*.o (RESET +First)
+  }
+
+  VECTOR_RAM 0x00000000 EMPTY 0x00000000 {
+  }
+
+  ER_m_flash_config 0x00000400 FIXED 0x00000010 {
+    * (FlashConfig)
+  }
+
+  ER_m_text_const 0x00000410 {
+    .ANY (+RO-DATA)
+  }
+
+  ER_m_text +0 0x0007FBF0 {
+    * (InRoot$$Sections)
+    .ANY (+RO)
+  }
+
+  RW_m_data 0x1FFF8000 {
+    .ANY (+RW-DATA)
+  }
+
+  RW_m_code +0 0x00008000 {
+    .ANY (.code_ram)
+  }
+
+  RW_BOOT_APP_MAILBOX 0x20000000 UNINIT EMPTY 0x00000080 {
+  }
+
+  RW_m_custom_section +0 ALIGN 0x4 {
+    .ANY (.customSection)
+  }
+
+  RW_m_data_2 +0 0x00006780 {
+    .ANY (+ZI)
+  }
+
+  ARM_LIB_HEAP +0 EMPTY 0x00000400 {
+  }
+
+  ARM_LIB_STACK 0x20007000 EMPTY -0x00000400 {
+  }
+}
