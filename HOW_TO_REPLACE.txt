@@ -1,32 +1,32 @@
 把修好的 FAN_CAN_APP_SAFE_RAMP.uvprojx 放回 Keil 工程
 
-1. 先完全退出 Keil uVision（任务栏里也不要留着）。
-2. 把工程目录里原来的 FAN_CAN_APP_SAFE_RAMP.uvprojx 改名备份，例如：
-     FAN_CAN_APP_SAFE_RAMP.uvprojx.bak
-3. 用本仓库里的 FAN_CAN_APP_SAFE_RAMP.uvprojx 覆盖到工程根目录。
-   保存编码必须是 UTF-8 无 BOM（或纯 ASCII）。不要用记事本另存成 Unicode / UTF-16。
-4. 启动文件在磁盘上也要改成小写 .s（Windows 要两步改名）：
-     cd 到工程的 RTE\Device\S32K144W
+【这次弹 Illegal start vector 的真正原因】
+IROM1 = 0x0 / 0x80000、Startup 已勾选，都是对的。
+Keil 仍报 Illegal start vector，是因为 Device 写成了父型号 S32K144W。
+S32_SDK_DFP 1.5.1 里父型号没有处理器时钟/完整 RAM 描述；
+真正可选的完整器件是料号 S32K144WAxxxLFx（工程里 Flash 算法路径本来就是它）。
+
+不要管：
+- NXP S32K144Wxxx (deprecated) —— 这个 pack 全部标了过期，FAN_F_ECU 也一样
+- Xtal = <undefined> —— MDK 5.35 以后 uvprojx 都这样，不影响编译
+
+【替换】
+1. 完全退出 Keil。
+2. 覆盖 FAN_CAN_APP_SAFE_RAMP.uvprojx。
+   编码 UTF-8 无 BOM。不要另存成 Unicode/UTF-16。
+3. 启动文件磁盘上用小写 .s（若还没有）：
+     cd RTE\Device\S32K144W
      ren startup_S32K144W.S startup_S32K144W.tmp
      ren startup_S32K144W.tmp startup_S32K144W.s
-   如果已经是 .s，跳过这一步。
-5. 双击打开修好的 uvprojx。
-6. 打开 Options for Target：
-   - 不应再弹出 Illegal start vector
-   - Asm / Linker 页应能点进去
-   - Linker 页应仍是 .\linker\FanCanAppTest.sct（不要勾 Use Memory Layout from Target Dialog）
+4. 删掉工程目录里的这两个（Keil 会自动再生，不影响源码）：
+     FAN_CAN_APP_SAFE_RAMP.uvoptx
+     FAN_CAN_APP_SAFE_RAMP.uvguix.*
+5. 打开工程。若弹出 pack 过期提示，点确定/关闭即可。
+6. Options for Target：
+   - Device 应显示 NXP S32K144WAxxxLFx (deprecated)
+   - 点 Asm、Linker、确定，不应再弹 Illegal start vector
+   - Linker 仍用 .\linker\FanCanAppTest.sct
 7. Rebuild。
 
-这次只改了会卡住 Options 对话框的内存/启动向量字段，并与能打开 Options 的 FAN_F_ECU 对齐：
-
-  StupSel     0 -> 8     （启动向量放到 IROM1）
-  RoSelD      0 -> 3     （默认 RO = IROM1 0x00000000 / 512KB）
-  RwSelD      5 -> 4     （默认 RW = IRAM1 0x20000000）
-  OCR_RVCT1 Type 0 -> 1
-  OCR_RVCT2 Type 0 -> 1
-  OCR_RVCT3 Type 0 -> 1
-  OCR_RVCT5 Type 0 -> 1
-  startup 文件名/路径  .S -> .s
-
-没有改：Device=S32K144W、InvalidFlash=1、自定义 scatter、编译宏、源文件列表。
-不要再把 Device 改成 S32K144WAxxxLFx。
+若 Options 仍弹窗：点“取消”（不要点确定），直接点 Rebuild。
+汇编选项已经写在 uvprojx 里（armasm + --cpreproc），不必进 Options 也能编。

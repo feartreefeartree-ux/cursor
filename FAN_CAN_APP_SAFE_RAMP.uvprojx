@@ -15,7 +15,7 @@
       <uAC6>1</uAC6>
       <TargetOption>
         <TargetCommonOption>
-          <Device>S32K144W</Device>
+          <Device>S32K144WAxxxLFx</Device>
           <Vendor>NXP</Vendor>
           <PackID>Keil.S32_SDK_DFP.1.5.1</PackID>
           <PackURL>https://www.keil.com/pack/</PackURL>
@@ -111,12 +111,12 @@
         </CommonProperty>
         <DllOption>
           <SimDllName>SARMCM3.DLL</SimDllName>
-          <SimDllArguments>
-          </SimDllArguments><SimDlgDll>DCM.DLL</SimDlgDll>
+          <SimDllArguments> -MPU</SimDllArguments>
+          <SimDlgDll>DCM.DLL</SimDlgDll>
           <SimDlgDllArguments>-pCM4</SimDlgDllArguments>
           <TargetDllName>SARMCM3.DLL</TargetDllName>
-          <TargetDllArguments>
-          </TargetDllArguments><TargetDlgDll>TCM.DLL</TargetDlgDll>
+          <TargetDllArguments> -MPU</TargetDllArguments>
+          <TargetDlgDll>TCM.DLL</TargetDlgDll>
           <TargetDlgDllArguments>-pCM4</TargetDlgDllArguments>
         </DllOption>
         <DebugOption>
