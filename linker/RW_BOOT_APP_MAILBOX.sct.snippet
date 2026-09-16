@@ -1,0 +1,17 @@
+; 把下面这一整块拷进 FAN_CAN_APP_SAFE_RAMP 的 linker\FanCanAppTest.sct
+; 必须放在 RAM 那个 LR { } 里面，和 RW_m_data / ARM_LIB_STACK 同级。
+;
+; 不要自己编地址。打开 FAN_F_ECU 的 linker\fan_f_ecu.sct，
+; 搜索 RW_BOOT_APP_MAILBOX，把那一块原样拷过来（地址、大小、UNINIT 都要一样）。
+; Boot 和 App 共用同一块 RAM，地址不一致交接会坏。
+;
+; 若 ECU 里是下面这种形式，SAFE_RAMP 也必须长这样（数字以 ECU 为准）：
+;
+;   RW_BOOT_APP_MAILBOX 0x........ UNINIT 0x.... {
+;     * (.boot_app_mailbox)
+;   }
+;
+; 空大括号也可以，链接器照样会生成 Image$$RW_BOOT_APP_MAILBOX$$Base：
+;
+;   RW_BOOT_APP_MAILBOX 0x........ UNINIT EMPTY 0x.... {
+;   }

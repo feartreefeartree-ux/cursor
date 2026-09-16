@@ -1,26 +1,20 @@
-把修好的 FAN_CAN_APP_SAFE_RAMP.uvprojx 放回 Keil 工程
+L6218E Image$$RW_BOOT_APP_MAILBOX$$Base 修复
 
-对照能打开 Options 的 FAN_F_ECU 之后，Device=S32K144W 不是原因。
-两边 ArmAdsMisc（IROM1/StupSel/RoSelD）也一样。真正差别是：
+对话框已经好了。这个错是链接：startup_S32K144W.S 引用了
+  Image$$RW_BOOT_APP_MAILBOX$$Base
+这个符号只有 scatter 里存在名为 RW_BOOT_APP_MAILBOX 的执行域时，链接器才会生成。
 
-  FAN_F_ECU（正常）                         SAFE_RAMP（原来会弹 Illegal start vector）
-  RTE: CMSIS CORE + Device Startup         RTE 空
-  工程组 ::CMSIS / ::Device                没有这两组，启动文件塞在 Platform 里
-  DriverSelection=4096  Flash3="" ()       DriverSelection=-1  Flash3 空
+FAN_F_ECU 的 fan_f_ecu.sct 里有这一块，所以 ECU 能链过。
+FAN_CAN_APP_SAFE_RAMP 的 FanCanAppTest.sct 里没有，所以只报这一个 L6218E。
 
-Keil 认启动向量靠 RTE 的 Device::Startup，不是只看 IROM1 勾选。
+【操作】
+1. 用记事本打开：
+     FAN_F_ECU\linker\fan_f_ecu.sct
+   搜索：RW_BOOT_APP_MAILBOX
+2. 把包含这个名字的整段执行域拷出来（从名字那一行到配对的 }）。
+3. 打开：
+     FAN_CAN_APP_SAFE_RAMP\linker\FanCanAppTest.sct
+   贴进 RAM 那个大括号里，和其它 RW_ 段并列。不要贴到 Flash 的 ER_m_text 里面。
+4. 保存，Rebuild。不要改 uvprojx。
 
-【替换】
-1. 完全退出 Keil。
-2. 覆盖 FAN_CAN_APP_SAFE_RAMP.uvprojx（UTF-8 无 BOM）。
-3. 删掉 FAN_CAN_APP_SAFE_RAMP.uvoptx 和 FAN_CAN_APP_SAFE_RAMP.uvguix.*
-4. 确认磁盘上仍有：
-     RTE\Device\S32K144W\startup_S32K144W.S   （或 .s，Windows 不区分）
-     RTE\Device\S32K144W\system_S32K144W.c
-     RTE\Device\S32K144W\system_S32K144W.h
-     RTE\Device\S32K144W\startup.c
-5. 打开工程。工程窗口应出现 ::CMSIS 和 ::Device。
-6. Options：Device 仍是 NXP S32K144W (deprecated)，点确定不应再弹 Illegal start vector。
-7. Rebuild。启动文件改由 ::Device 编译，不要再在 Platform 组里留一份。
-
-scatter 仍是 .\linker\FanCanAppTest.sct，应用源文件没动。
+地址必须和 ECU 完全一致。也可对照 inc\BootApp_SharedMailbox.h 里的基址/长度。
