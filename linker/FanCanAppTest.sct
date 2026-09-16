@@ -1,7 +1,5 @@
-; FAN_CAN_APP_SAFE_RAMP scatter — ARM Compiler 6, no preprocessor.
-; Do not put #! or #if in this file. Keil/IPGSD wrapping makes #! armclang -E
-; emit %TSD-Header- and then L6226E/L6228E/L6372E.
-;
+; FAN_CAN_APP_SAFE_RAMP scatter for ARM Compiler 6.
+; Plain scatter only. No shebang, no preprocessor directives.
 ; Mailbox: Image$$RW_BOOT_APP_MAILBOX$$Base at 0x20000000, size 0x80.
 ; If FAN_F_ECU fan_f_ecu.sct uses another address, change RW_BOOT_APP_MAILBOX only.
 
@@ -27,11 +25,11 @@ LR_m_text 0x00000000 0x00080000 {
     .ANY (+RO)
   }
 
-  RW_m_data 0x1FFF8000 0x00008000 {
+  RW_m_data 0x1FFF8000 {
     .ANY (+RW-DATA)
   }
 
-  RW_m_code +0 {
+  RW_m_code +0 0x00008000 {
     .ANY (.code_ram)
   }
 
