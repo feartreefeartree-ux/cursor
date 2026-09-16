@@ -1,7 +1,8 @@
-; FAN_CAN_APP_SAFE_RAMP scatter for ARM Compiler 6.
+; FAN_CAN_APP_SAFE_RAMP application scatter for ARM Compiler 6.
+; Same MCU as FAN_F_ECU (S32K144W). Not the same image: do not use fan_f_ecu.sct.
 ; Plain scatter only. No shebang, no preprocessor directives.
 ; Mailbox: Image$$RW_BOOT_APP_MAILBOX$$Base at 0x20000000, size 0x80.
-; If FAN_F_ECU fan_f_ecu.sct uses another address, change RW_BOOT_APP_MAILBOX only.
+; Copy only RW_BOOT_APP_MAILBOX base/size from ECU if that file uses another address.
 
 LR_m_text 0x00000000 0x00080000 {
 

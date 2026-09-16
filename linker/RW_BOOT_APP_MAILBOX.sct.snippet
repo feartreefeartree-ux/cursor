@@ -1,5 +1,6 @@
-; 把下面这一整块拷进 FAN_CAN_APP_SAFE_RAMP 的 linker\FanCanAppTest.sct
-; 必须放在 RAM 那个 LR { } 里面，和 RW_m_data / ARM_LIB_STACK 同级。
+; 芯片相同（S32K144W）。不要整份替换成 fan_f_ecu.sct。
+; 只把 RW_BOOT_APP_MAILBOX 这一块拷进 linker\FanCanAppTest.sct，
+; 放在 LR { } 里面，和 RW_m_data / ARM_LIB_STACK 同级。
 ;
 ; 不要自己编地址。打开 FAN_F_ECU 的 linker\fan_f_ecu.sct，
 ; 搜索 RW_BOOT_APP_MAILBOX，把那一块原样拷过来（地址、大小、UNINIT 都要一样）。
