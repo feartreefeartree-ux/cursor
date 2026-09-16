@@ -1,17 +1,17 @@
-覆盖 scatter，不要改 uvprojx
+整份覆盖 linker\FanCanAppTest.sct（不要用带 #! 的版本）
 
-L6218E 还在，说明工程里的 linker\FanCanAppTest.sct 仍没有名为 RW_BOOT_APP_MAILBOX 的执行域。
-不要手动改几行，整文件替换。
+L6226E %TSD-Header- 和 L6228E Expected '{' found '#' 是因为上一份 sct 第一行是
+  #! armclang ... -E
+Keil 预处理失败（常见于公司 IPGSD/加密把 .sct 包了一层），链接器就把 #if 和加密头当成域名字。
+
+这一份没有任何 # 和 #!，armlink 直接读。
 
 1. 退出 Keil。
-2. 把工程里的 linker\FanCanAppTest.sct 改名备份成 FanCanAppTest.sct.bak。
-3. 用本仓库 linker\FanCanAppTest.sct 覆盖到同样路径。
-   保存成 ANSI/UTF-8 无 BOM。扩展名必须是 .sct。
-4. 打开工程 → Rebuild。
+2. 旧文件改名 FanCanAppTest.sct.bak。
+3. 用新的 FanCanAppTest.sct 覆盖到工程 linker\ 目录。
+   用 VS Code / 记事本另存为 ANSI 或 UTF-8 无 BOM。不要 Unicode。
+   不要用微信/邮件直接保存；可先存成 .txt 再改名为 .sct。
+4. Options → Linker 确认 Scatter File 仍是 .\linker\FanCanAppTest.sct，未勾选 Use Memory Layout from Target Dialog。
+5. Rebuild。
 
-这份 sct 在 SRAM_U 开头 0x20000000 留了 0x80 字节 UNINIT 邮箱，链接器会生成：
-  Image$$RW_BOOT_APP_MAILBOX$$Base
-
-若 ECU 的 fan_f_ecu.sct 里 RW_BOOT_APP_MAILBOX 不是 0x20000000 / 0x80，
-把本文件顶部的 m_boot_app_mailbox_start / m_boot_app_mailbox_size 改成和 ECU 一样。
-若备份的旧 sct 里 Flash 不是从 0x00000000 开始，把 m_interrupts_start 改成旧文件的 App 起始地址。
+邮箱在 0x20000000 长度 0x80。若要和 ECU 一致，只改 RW_BOOT_APP_MAILBOX 那一行的地址和长度。

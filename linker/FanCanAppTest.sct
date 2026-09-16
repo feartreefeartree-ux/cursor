@@ -1,100 +1,54 @@
-#! armclang --target=arm-arm-none-eabi -mcpu=cortex-m4 -xc -E -DSTART_FROM_FLASH -D__flash_vector_table__
-/*
- * FAN_CAN_APP_SAFE_RAMP scatter for ARM Compiler 6.
- * Based on NXP S32K144W_64_flash.sct, plus RW_BOOT_APP_MAILBOX so
- * startup_S32K144W.S can resolve Image$$RW_BOOT_APP_MAILBOX$$Base.
- *
- * If FAN_F_ECU\linker\fan_f_ecu.sct uses a different mailbox address/size,
- * change m_boot_app_mailbox_start / m_boot_app_mailbox_size to match.
- */
+; FAN_CAN_APP_SAFE_RAMP scatter — ARM Compiler 6, no preprocessor.
+; Do not put #! or #if in this file. Keil/IPGSD wrapping makes #! armclang -E
+; emit %TSD-Header- and then L6226E/L6228E/L6372E.
+;
+; Mailbox: Image$$RW_BOOT_APP_MAILBOX$$Base at 0x20000000, size 0x80.
+; If FAN_F_ECU fan_f_ecu.sct uses another address, change RW_BOOT_APP_MAILBOX only.
 
-#if (defined(__flash_vector_table__))
-  #define __ram_vector_table_size__    0x00000000
-#else
-  #define __ram_vector_table_size__    0x00000400
-#endif
+LR_m_text 0x00000000 0x00080000 {
 
-#define m_interrupts_start             0x00000000
-#define m_interrupts_size              0x00000400
-
-#define m_flash_config_start           0x00000400
-#define m_flash_config_size            0x00000010
-
-#define m_text_start                   0x00000410
-#define m_text_size                    0x0007FBF0
-
-#define m_interrupts_ram_start         0x1FFF8000
-#define m_interrupts_ram_size          __ram_vector_table_size__
-
-#define m_data_start                   0x1FFF8000 + __ram_vector_table_size__
-#define m_data_size                    0x00008000 - __ram_vector_table_size__
-
-#define m_data_2_start                 0x20000000
-#define m_data_2_size                  0x00007000
-
-#define m_boot_app_mailbox_start       0x20000000
-#define m_boot_app_mailbox_size        0x00000080
-
-#if (defined(__stack_size__))
-  #define Stack_Size                   __stack_size__
-#else
-  #define Stack_Size                   0x0400
-#endif
-
-#if (defined(__heap_size__))
-  #define Heap_Size                    __heap_size__
-#else
-  #define Heap_Size                    0x0400
-#endif
-
-LR_m_text m_interrupts_start m_text_start+m_text_size-m_interrupts_start {
-  VECTOR_ROM m_interrupts_start m_interrupts_size {
+  VECTOR_ROM 0x00000000 0x00000400 {
     startup_S32K1*.o (RESET +First)
   }
 
-#if (defined(__flash_vector_table__))
-  VECTOR_RAM m_interrupts_start EMPTY 0 {
+  VECTOR_RAM 0x00000000 EMPTY 0x00000000 {
   }
-#else
-  VECTOR_RAM m_interrupts_ram_start EMPTY m_interrupts_ram_size {
-  }
-#endif
 
-  ER_m_flash_config m_flash_config_start FIXED m_flash_config_size {
+  ER_m_flash_config 0x00000400 FIXED 0x00000010 {
     * (FlashConfig)
   }
 
-  ER_m_text_const m_text_start {
+  ER_m_text_const 0x00000410 {
     .ANY (+RO-DATA)
   }
 
-  ER_m_text +0 m_text_size {
+  ER_m_text +0 0x0007FBF0 {
     * (InRoot$$Sections)
     .ANY (+RO)
   }
 
-  RW_m_data m_data_start {
+  RW_m_data 0x1FFF8000 0x00008000 {
     .ANY (+RW-DATA)
   }
 
-  RW_m_code +0 m_data_size {
+  RW_m_code +0 {
     .ANY (.code_ram)
   }
 
-  RW_BOOT_APP_MAILBOX m_boot_app_mailbox_start UNINIT EMPTY m_boot_app_mailbox_size {
+  RW_BOOT_APP_MAILBOX 0x20000000 UNINIT EMPTY 0x00000080 {
   }
 
   RW_m_custom_section +0 ALIGN 0x4 {
     .ANY (.customSection)
   }
 
-  RW_m_data_2 +0 m_data_2_size-Stack_Size-Heap_Size-m_boot_app_mailbox_size {
+  RW_m_data_2 +0 0x00006780 {
     .ANY (+ZI)
   }
 
-  ARM_LIB_HEAP ((ImageLimit(RW_m_data_2) == m_data_2_start) ? m_data_2_start : +0) EMPTY Heap_Size {
+  ARM_LIB_HEAP +0 EMPTY 0x00000400 {
   }
 
-  ARM_LIB_STACK m_data_2_start+m_data_2_size EMPTY -Stack_Size {
+  ARM_LIB_STACK 0x20007000 EMPTY -0x00000400 {
   }
 }
